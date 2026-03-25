@@ -4,9 +4,11 @@ import { libWrapper } from "./shim.js";
 
 export function registerLibWrapperFunctions() {
     addLockOverrides();
-    addSceneConfigOverrides();
     addStaticUserOverrides();
     addBoundingBoxOverrides();
+
+    //Wait for "ready" hook before configuring scene config overrides, to give systems the time to register their own scene config
+    Hooks.once("ready", () => addSceneConfigOverrides())
 }
 
 /**
@@ -107,14 +109,13 @@ function addLockOverrides() {
  * Overrides to add Lock View settings to the scene configuration
  */
 function addSceneConfigOverrides() {
-
     /**
      * Add Lock View options to scene config
      */
-    let sceneConfig = foundry.applications.sheets.SceneConfig
+    let sceneConfig = Object.values(CONFIG.Scene.sheetClasses.base)[0].cls;
     sceneConfig.PARTS.lockView = { template: 'modules/LockView/templates/sceneConfig.hbs', scrollable: [""]};
-    sceneConfig.PARTS = Helpers.moveObjectElement('footer', 'lockView', foundry.applications.sheets.SceneConfig.PARTS);
-    foundry.applications.sheets.SceneConfig.TABS.sheet.tabs.push({
+    sceneConfig.PARTS = Helpers.moveObjectElement('footer', 'lockView', sceneConfig.PARTS);
+    sceneConfig.TABS.sheet.tabs.push({
         id: 'lockView',
         icon: 'fas fa-tv',
         label: 'Lock View'
@@ -365,7 +366,6 @@ export function boundingBoxHandler(coords) {
     //Check all drawings
     for (let drawing of drawings) {
         const mode = drawing.flags?.LockView?.boundingBox || 'always';
-        //console.log("DRawing", drawing, mode)
 
         let isInside = true;
         //Check if all points of the view are within the drawing

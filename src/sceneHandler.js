@@ -72,7 +72,7 @@ export class SceneHandler {
     }
 
     getAutoscale(mode, scene = canvas.scene) {
-        
+        //canvas.dimensions.scale.min = 0.05;
         let windowWidth = window.innerWidth;
         let pos = {
             x: canvas.dimensions.sceneX + scene.width/2,
@@ -121,6 +121,7 @@ export class SceneHandler {
 
     setUiElements(scene, source) {
         const uiFlags = scene.getFlag(moduleName, 'ui');
+        //console.log("UIFlags", uiFlags)
         if (!Helpers.getUserSetting('enable')) {
             for (let [elmntId, hide] of Object.entries(uiFlags)) 
                 if (document.getElementById(elmntId)) {

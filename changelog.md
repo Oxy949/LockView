@@ -4,6 +4,7 @@
 
 Fixes:
 * Fixed issue on the Forge where a stylesheet could not be edited to blacken the sidebar.
+* Lock View would break on systems that register their own Scene Config sheet. This should now be fixed.
 
 ### v2.0.2 - 07-11-2025
 

@@ -18,7 +18,7 @@ import { ControlButtonsConfig } from "./src/apps/controlButtonsConfig.js";
 export const moduleName = "LockView";
 export const documentationUrl = "https://materialfoundry.github.io/LockView/";
 
-//CONFIG.debug.hooks = true;
+CONFIG.debug.hooks = true;
 
 class LockView {
   constructor() {
