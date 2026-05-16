@@ -58,10 +58,11 @@ function addLockOverrides() {
         if (lockView.viewbox.editEnabled && game.settings.get('LockView', 'mouserViewboxControl')) {
             wrapped();
             if (args[0].scale && lockView.viewbox.getActiveViewbox()) {
+                const viewPosition = Helpers.getViewPosition();
                 lockView.socket.setView({
                     type: 'relative',
                     userId: lockView.viewbox.getActiveViewbox(),
-                    position: { scale: args[0].scale/canvas.scene._viewPosition.scale }
+                    position: { scale: args[0].scale/viewPosition.scale }
                 })
             }
             return;
@@ -86,7 +87,7 @@ function addLockOverrides() {
         const panLockMode = game.settings.get(moduleName, 'pingPan');
         
         /* For users with 'Enable' */
-        if (args[2].pull && panLockMode !== 'block' && lockView.Helpers.getUserSetting('control', args[0].id) && lockView.locks.applyLocks) {
+        if (args[2]?.pull && panLockMode !== 'block' && lockView.Helpers.getUserSetting('control', args[0].id) && lockView.locks.applyLocks) {
             const locks = structuredClone(lockView.locks);
             if (panLockMode === 'panOnly' || panLockMode === 'any') lockView.locks.pan = false;
             if (panLockMode === 'zoomOnly' || panLockMode === 'any') lockView.locks.zoom = false;
@@ -109,135 +110,134 @@ function addLockOverrides() {
  * Overrides to add Lock View settings to the scene configuration
  */
 function addSceneConfigOverrides() {
-    /**
-     * Add Lock View options to scene config
-     */
-    let sceneConfig = Object.values(CONFIG.Scene.sheetClasses.base)[0].cls;
-    sceneConfig.PARTS.lockView = { template: 'modules/LockView/templates/sceneConfig.hbs', scrollable: [""]};
-    sceneConfig.PARTS = Helpers.moveObjectElement('footer', 'lockView', sceneConfig.PARTS);
-    sceneConfig.TABS.sheet.tabs.push({
-        id: 'lockView',
-        icon: 'fas fa-tv',
-        label: 'Lock View'
+    const sceneConfig = getSceneConfigClass();
+    if (sceneConfig.__lockViewInjected) return;
+    sceneConfig.__lockViewInjected = true;
+
+    const parts = sceneConfig.PARTS;
+    if (!parts.lockView) {
+        const footer = parts.footer;
+        delete parts.footer;
+        parts.lockView = { template: 'modules/LockView/templates/sceneConfig.hbs', scrollable: [""] };
+        if (footer) parts.footer = footer;
+    }
+
+    if (!sceneConfig.TABS.sheet.tabs.some(t => t.id === 'lockView')) {
+        sceneConfig.TABS.sheet.tabs.push({
+            id: 'lockView',
+            icon: 'fas fa-tv',
+            label: 'Lock View'
+        })
+    }
+
+    wrapSceneConfigPrepareContext(sceneConfig);
+    wrapSceneConfigRender(sceneConfig);
+}
+
+function getSceneConfigClass() {
+    const sceneConfig = foundry.applications.sheets.SceneConfig;
+    const documentSheetConfig = foundry.applications.apps?.DocumentSheetConfig;
+    const defaultClass = documentSheetConfig?.getSheetClassesForSubType?.("Scene")?.defaultClass;
+    const sheetClasses = CONFIG.Scene?.sheetClasses ?? {};
+    const configuredClass = Object.values(sheetClasses)
+        .flatMap(sheetGroup => Object.entries(sheetGroup))
+        .find(([id, sheet]) => id === defaultClass || sheet?.id === defaultClass)?.[1]?.cls;
+
+    return configuredClass?.prototype instanceof sceneConfig ? configuredClass : sceneConfig;
+}
+
+function wrapSceneConfigPrepareContext(sceneConfig) {
+    const prepareContext = sceneConfig.prototype._prepareContext;
+    sceneConfig.prototype._prepareContext = async function (...args) {
+        const context = await prepareContext.call(this, ...args);
+        const document = context.document ?? this.document;
+        if (!document) return context;
+
+        Object.assign(context, {
+            sceneId: document.id,
+            ...lockView.sceneHandler.getSceneConfig(document.flags.LockView)
+        });
+        return context;
+    }
+}
+
+function wrapSceneConfigRender(sceneConfig) {
+    const onRender = sceneConfig.prototype._onRender;
+    sceneConfig.prototype._onRender = function (...args) {
+        const result = onRender.call(this, ...args);
+        addSceneConfigListeners.call(this, args[0]);
+        return result;
+    }
+}
+
+function addSceneConfigListeners(context) {
+    const scene = context?.document ?? this.document;
+    this.element.querySelector('button[name="openInitialViewConfig"]')?.addEventListener('click', () => {
+        lockView.apps.initialViewConfig.setScene(scene).render(true);
+    });
+
+    //Configure expandable sections
+    for (let elmnt of this.element.querySelectorAll('.lockview-expandable')) {
+        const expandElements = this.element.querySelectorAll(`div[name="${elmnt.dataset.expand}"]`)
+        elmnt.addEventListener('click', () => {
+            for (let expandElmnt of expandElements)
+                expandElmnt.classList.toggle('lockview-collapsed')
+            const icon = elmnt.firstElementChild;
+            if (icon?.classList.contains('fa-caret-right'))
+                icon.classList.replace('fa-caret-right', 'fa-caret-down');
+            else
+                icon?.classList.replace('fa-caret-down', 'fa-caret-right');
+        })
+    }
+
+    //Handle 'expand all' button
+    this.element.querySelector('button[name="lockview-expandAll"]')?.addEventListener('click', () => {
+        const expandElements = this.element.querySelectorAll(`.lockview-expandable`);
+        for (let elmnt of expandElements) {
+            const icon = elmnt.firstElementChild;
+            if (icon?.classList.contains('fa-caret-right')) {
+                icon.classList.replace('fa-caret-right', 'fa-caret-down');
+                for (let expandElmnt of this.element.querySelectorAll(`div[name="${elmnt.dataset.expand}"]`))
+                    expandElmnt.classList.toggle('lockview-collapsed')
+            }
+        }
     })
 
-    /**
-     * Overrides submit handling of the scene configuration to handle Lock View settings
-     */
-    libWrapper.register(moduleName, "foundry.applications.sheets.SceneConfig.prototype._processSubmitData", async function (wrapped, ...args) {
-        const formData = new foundry.applications.ux.FormDataExtended(args[1]);
-        const submitData = foundry.utils.expandObject(formData.object);
-
-        if (this.document?._id !== null) {
-            await this.document.update({
-                flags: {
-                    LockView: submitData.lockview
-                }
-            });
-
-            lockView.sceneHandler.onSceneUpdate(game.scenes.get(this.document._id), 'sceneConfig', true);
-        }
-        
-        return wrapped(...args);
-    }, "WRAPPER");
-
-    /**
-     * Add Lock View settings to scene configuration
-     */
-    libWrapper.register(moduleName, "foundry.applications.sheets.SceneConfig.prototype._preparePartContext", async function (wrapped, ...args) {
-        if (args[0] === 'lockView') {
-            let context = args[1];
-            let flags = context.document.flags.LockView;
-            if (!flags) {
-                flags = game.settings.get(moduleName, 'defaultSceneConfig');
-                await context.document.update({
-                    flags: {
-                        LockView: flags
-                    }
-                })
-            }
-            let sceneConfig = lockView.sceneHandler.getSceneConfig(flags)
-
-            return {
-                sceneId: context.document._id,
-                tab: context.tabs[args[0]],
-                ...sceneConfig
-            };
-        }
-        else
-            return wrapped(...args);
-    }, "MIXED");
-
-    /**
-     * Add Lock View event listeneres to scene configuration
-     */
-    libWrapper.register(moduleName, "foundry.applications.sheets.SceneConfig.prototype._onRender", function (wrapped, ...args) {
-        const context = args[0];
-        this.element.querySelector('button[name="openInitialViewConfig"]')?.addEventListener('click', () => {
-            lockView.apps.initialViewConfig.setScene(context.document).render(true);
-        });
-        
-        //Configure expandable sections
-        for (let elmnt of this.element.querySelectorAll('.lockview-expandable')) {
-            const expandElements = this.element.querySelectorAll(`div[name="${elmnt.dataset.expand}"]`)
-            elmnt.addEventListener('click', (event) => {
-                for (let expandElmnt of expandElements) 
+    //Handle 'collapse all' button
+    this.element.querySelector('button[name="lockview-collapseAll"]')?.addEventListener('click', () => {
+        const expandElements = this.element.querySelectorAll(`.lockview-expandable`);
+        for (let elmnt of expandElements) {
+            const icon = elmnt.firstElementChild;
+            if (icon?.classList.contains('fa-caret-down')) {
+                icon.classList.replace('fa-caret-down', 'fa-caret-right');
+                for (let expandElmnt of this.element.querySelectorAll(`div[name="${elmnt.dataset.expand}"]`))
                     expandElmnt.classList.toggle('lockview-collapsed')
-                const icon = elmnt.firstElementChild;
-                if (icon.classList.contains('fa-caret-right'))
-                    icon.classList.replace('fa-caret-right', 'fa-caret-down');
-                else
-                    icon.classList.replace('fa-caret-down', 'fa-caret-right');
-            })
+            }
         }
+    })
 
-        //Handle 'expand all' button
-        this.element.querySelector('button[name="lockview-expandAll"]').addEventListener('click', () => {
-            const expandElements = this.element.querySelectorAll(`.lockview-expandable`);
-            for (let elmnt of expandElements) {
-                const icon = elmnt.firstElementChild;
-                if (icon.classList.contains('fa-caret-right')) {
-                    icon.classList.replace('fa-caret-right', 'fa-caret-down');
-                    for (let expandElmnt of this.element.querySelectorAll(`div[name="${elmnt.dataset.expand}"]`)) 
-                        expandElmnt.classList.toggle('lockview-collapsed')
-                }
-            }
-        })
+    //Handle 'Scene Configurator' button
+    this.element.querySelector('button[name="lockView-openSceneConfigurator"]')?.addEventListener('click', () => {
+        lockView.apps.sceneConfigurator.render(true);
+    })
 
-        //Handle 'collapse all' button
-        this.element.querySelector('button[name="lockview-collapseAll"]').addEventListener('click', () => {
-            const expandElements = this.element.querySelectorAll(`.lockview-expandable`);
-            for (let elmnt of expandElements) {
-                const icon = elmnt.firstElementChild;
-                if (icon.classList.contains('fa-caret-down')) {
-                    icon.classList.replace('fa-caret-down', 'fa-caret-right');
-                    for (let expandElmnt of this.element.querySelectorAll(`div[name="${elmnt.dataset.expand}"]`)) 
-                        expandElmnt.classList.toggle('lockview-collapsed')
-                }
-            }
-        })
+    //Add 'Lock View Help' button to header
+    const controlsDropdown = this.element.querySelector(".controls-dropdown");
+    if (!controlsDropdown || controlsDropdown.querySelector('[data-lockview-help]')) return;
 
-        //Handle 'Scene Configurator' button
-        this.element.querySelector('button[name="lockView-openSceneConfigurator"]').addEventListener('click', () => {
-            lockView.apps.sceneConfigurator.render(true);
-        })
+    const headerElmnt = document.createElement('li');
+    controlsDropdown.appendChild(headerElmnt);
+    headerElmnt.setAttribute('class', 'header-control');
+    headerElmnt.dataset.lockviewHelp = "";
 
-        //Add 'Lock View Help' button to header
-        const headerElmnt = document.createElement('li');
-        this.element.querySelector(".controls-dropdown").appendChild(headerElmnt);
-        headerElmnt.setAttribute('class', 'header-control');
+    headerElmnt.innerHTML = `
+    <button class="control" type="button">
+        <i class="fas fa-tv"></i>
+        <span class="control-label">${Helpers.localize("LockViewHelp", "SceneConfig")}</span>
+    </button>
+    `;
 
-        headerElmnt.innerHTML = `
-        <button class="control" type="button">
-            <i class="fas fa-tv"></i>
-            <span class="control-label">${Helpers.localize("LockViewHelp", "SceneConfig")}</span>
-        </button>
-        `;
-
-        headerElmnt.addEventListener('click', () => window.open(Helpers.getDocumentationUrl('sceneConfig/sceneConfig')))
-
-        return wrapped(...args);
-    }, "WRAPPER");
+    headerElmnt.addEventListener('click', () => window.open(Helpers.getDocumentationUrl('sceneConfig/sceneConfig')))
 }
 
 /**
@@ -250,6 +250,10 @@ function addStaticUserOverrides() {
      */
     libWrapper.register(moduleName, "foundry.documents.Scene.prototype.view", function (wrapped, ...args) {
         if (!firstScene && Helpers.getUserSetting('static') && !args[0]?.forceView) return;
+        if (args[0]?.forceView) {
+            args[0] = {...args[0]};
+            delete args[0].forceView;
+        }
         setTimeout(()=>{firstScene = false},1000);
         return wrapped(...args);
     }, "MIXED");
@@ -274,21 +278,25 @@ function addBoundingBoxOverrides() {
      * Add Lock View options to drawing config
      */
     let drawingConfig = foundry.applications.sheets.DrawingConfig
-    drawingConfig.PARTS.lockView = { template: 'modules/LockView/templates/drawingConfig.hbs', scrollable: [""]};
-    drawingConfig.PARTS = Helpers.moveObjectElement('footer', 'lockView', foundry.applications.sheets.DrawingConfig.PARTS);
-    foundry.applications.sheets.DrawingConfig.TABS.sheet.tabs.push({
-        id: 'lockView',
-        icon: 'fas fa-tv',
-        label: 'Lock View'
-    })
+    if (!drawingConfig.PARTS.lockView) {
+        drawingConfig.PARTS.lockView = { template: 'modules/LockView/templates/drawingConfig.hbs', scrollable: [""]};
+        drawingConfig.PARTS = Helpers.moveObjectElement('footer', 'lockView', foundry.applications.sheets.DrawingConfig.PARTS);
+    }
+    if (!foundry.applications.sheets.DrawingConfig.TABS.sheet.tabs.some(t => t.id === 'lockView')) {
+        foundry.applications.sheets.DrawingConfig.TABS.sheet.tabs.push({
+            id: 'lockView',
+            icon: 'fas fa-tv',
+            label: 'Lock View'
+        })
+    }
 
     /**
      * Hide lock view options on non-rectangle shapes
      */
     libWrapper.register(moduleName, "foundry.applications.sheets.DrawingConfig.prototype._onRender", function (...args) {
         const context = args[0];
-        if (context.document?.shape.type !== 'r')
-            this.element.querySelector('a[data-tab="lockView"]').style.display = 'none';
+        if (!isRectangleDrawing(context.document))
+            this.element.querySelector('a[data-tab="lockView"]')?.style.setProperty('display', 'none');
     }, "LISTENER");
 
     /**
@@ -317,17 +325,18 @@ function addBoundingBoxOverrides() {
      * Overrides submit handling of the drawing configuration to handle Lock View settings
      */
     libWrapper.register(moduleName, "foundry.applications.sheets.DrawingConfig.prototype._processSubmitData", async function (wrapped, ...args) {
-        const formData = new foundry.applications.ux.FormDataExtended(args[1]);
-        const submitData = foundry.utils.expandObject(formData.object);
+        const submitData = getExpandedSubmitData(args[1], args[2]);
+        const lockViewData = submitData.lockview;
+        removeLockViewSubmitData(args[2]);
 
-        if (this.document?._id !== null) {
+        if (lockViewData && this.document?.id) {
             await this.document.update({
                 flags: {
-                    LockView: submitData.lockview
+                    LockView: lockViewData
                 }
             });
 
-            if (submitData.lockview.boundingBox) canvas.pan(canvas.scene._viewPosition);
+            if (lockViewData.boundingBox) canvas.pan(Helpers.getViewPosition());
         }
         
         return wrapped(...args);
@@ -335,9 +344,9 @@ function addBoundingBoxOverrides() {
 }
 
 export function boundingBoxHandler(coords) {
-    let drawings = canvas.scene.drawings.filter(d => d.flags?.LockView?.boundingBox === 'always' || d.flags?.LockView?.boundingBox === 'owned');
+    let drawings = canvas.scene.drawings.filter(d => isRectangleDrawing(d) && (d.flags?.LockView?.boundingBox === 'always' || d.flags?.LockView?.boundingBox === 'owned'));
 
-    const currentPosition = structuredClone(canvas.scene._viewPosition);
+    const currentPosition = Helpers.getViewPosition();
     const target = foundry.utils.mergeObject(currentPosition, coords)
     const sidebarWidth = canvas.scene.getFlag(moduleName, 'sidebar')?.exclude ? Helpers.getSidebarWidth() : 0;
     const scaledSidebarWidth = sidebarWidth/target.scale;
@@ -445,7 +454,7 @@ export function boundingBoxHandler(coords) {
 
 Hooks.on('refreshToken', () => {
     if (lockView.locks.boundingBox)
-        canvas.pan(canvas.scene._viewPosition);
+        canvas.pan(Helpers.getViewPosition());
 })
 
 function getCombinedDrawingSize(drawings) {
@@ -473,4 +482,22 @@ function getCombinedDrawingSize(drawings) {
             height
         }
     }
+}
+
+function getExpandedSubmitData(form, submitData) {
+    const data = submitData ?? new foundry.applications.ux.FormDataExtended(form).object;
+    return foundry.utils.expandObject(data);
+}
+
+function removeLockViewSubmitData(submitData) {
+    if (!submitData) return;
+    delete submitData.lockview;
+    for (const key of Object.keys(submitData)) {
+        if (key.startsWith('lockview.')) delete submitData[key];
+    }
+}
+
+function isRectangleDrawing(drawing) {
+    const rectangleType = foundry.canvas?.placeables?.Drawing?.SHAPE_TYPES?.RECTANGLE ?? 'r';
+    return drawing?.shape?.type === rectangleType || drawing?.shape?.type === 'r';
 }

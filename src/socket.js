@@ -31,7 +31,7 @@ export class Socket {
 
             //console.log('Socket rec', messageType, sender, target, data)
             if (messageType === 'requestFlagSet') this.onRequestFlagSet(data);
-            else if (messageType === 'updateLocks' && canvas?.scene?._id === data.scene) lockView.locks.update(data.locks, {fromSocket:true});
+            else if (messageType === 'updateLocks' && canvas?.scene?.id === data.scene) lockView.locks.update(data.locks, {fromSocket:true});
             else if (messageType === 'updateViewbox') lockView.viewbox.update(sender, data);
             else if (messageType === 'requestViewbox') lockView.viewbox.emit();
             else if (messageType === 'setView') this.onSetView(data);
@@ -82,18 +82,19 @@ export class Socket {
     }
 
     emitViewbox() {
-        if (!canvas?.scene?._viewPosition?.scale) return;
+        const viewPosition = Helpers.getViewPosition();
+        if (!viewPosition.scale) return;
         let windowWidth = window.innerWidth;
-        let position = structuredClone(canvas.scene._viewPosition);
+        let position = structuredClone(viewPosition);
         if (canvas.scene.getFlag(moduleName, 'sidebar')?.exclude) {
             windowWidth -= Helpers.getSidebarWidth();
-            position.x -= 0.5*Helpers.getSidebarWidth()/canvas.scene._viewPosition.scale
+            position.x -= 0.5*Helpers.getSidebarWidth()/viewPosition.scale
         }
         
         this.emit('updateViewbox', 'control', {
             position,
-            width: windowWidth/canvas.scene._viewPosition.scale,
-            height: window.innerHeight/canvas.scene._viewPosition.scale,
+            width: windowWidth/viewPosition.scale,
+            height: window.innerHeight/viewPosition.scale,
             color: game.user.color,
             name: game.user.name,
             scene: canvas.scene.id
@@ -113,9 +114,10 @@ export class Socket {
         const currentLocks = lockView.locks.applyLocks;
         if (currentLocks) lockView.locks.applyLocks = false;
         if (data.type === 'absolute') {
-            let scale = canvas.scene._viewPosition.scale;
-            let width = window.innerWidth/canvas.scene._viewPosition.scale;
-            let height = window.innerHeight/canvas.scene._viewPosition.scale;
+            const viewPosition = Helpers.getViewPosition();
+            let scale = viewPosition.scale;
+            let width = window.innerWidth/viewPosition.scale;
+            let height = window.innerHeight/viewPosition.scale;
             if (data.width) {
                 scale = window.innerWidth/data.width;
                 width = data.width;
@@ -130,10 +132,11 @@ export class Socket {
             });
         }
         else if (data.type === 'relative') {
+            const viewPosition = Helpers.getViewPosition();
             let newPos = {
-                x: data.position.x ? data.position.x*canvas.scene._viewPosition.scale + canvas.scene._viewPosition.x : undefined,
-                y: data.position.y ? data.position.y*canvas.scene._viewPosition.scale + canvas.scene._viewPosition.y : undefined,
-                scale: data.position.scale ? data.position.scale*canvas.scene._viewPosition.scale : undefined
+                x: data.position.x ? data.position.x*viewPosition.scale + viewPosition.x : undefined,
+                y: data.position.y ? data.position.y*viewPosition.scale + viewPosition.y : undefined,
+                scale: data.position.scale ? data.position.scale*viewPosition.scale : undefined
             }
             canvas.pan(newPos)
         }
@@ -154,23 +157,24 @@ export class Socket {
         if (currentLocks) lockView.locks.applyLocks = false;
 
         let position = {};
+        const viewPosition = Helpers.getViewPosition();
 
         if (data.pan === 'initialView') {
             position.x = canvas.scene.initial.x;
             position.y = canvas.scene.initial.y;
         }
         else if (data.pan === 'moveGridSpaces') {
-            position = canvas.scene._viewPosition;
+            position = viewPosition;
             if (data.grid?.x) position.x += data.grid?.x * canvas.grid.sizeX;
             if (data.grid?.y) position.y += data.grid?.y * canvas.grid.sizeY;
         }
         else if (data.pan === 'moveByCoords') {
-            position = canvas.scene._viewPosition;
+            position = viewPosition;
             if (data.coordinates?.x) position.x += data.coordinates.x;
             if (data.coordinates?.y) position.y += data.coordinates.y;
         }
         else if (data.pan === 'moveToCoords' || data.pan === 'cloneView') {
-            position = canvas.scene._viewPosition;
+            position = viewPosition;
             if (data.coordinates?.x) position.x = data.coordinates.x;
             if (data.coordinates?.y) position.y = data.coordinates.y;
         }

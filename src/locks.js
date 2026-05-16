@@ -23,25 +23,24 @@ export class Locks {
             if (locks.zoom !== undefined) this.zoom = locks.zoom;
             if (locks.boundingBox !== undefined) {
                 this.boundingBox = locks.boundingBox;
-                if (this.boundingBox) canvas.pan(canvas.scene._viewPosition);
+                if (this.boundingBox) canvas.pan(Helpers.getViewPosition());
             }
         }
         
         if (lockView.controlButtonVisible) {
-            ui.controls.controls.lockView.tools.panLock.active = this.pan;
-            ui.controls.controls.lockView.tools.zoomLock.active = this.zoom;
-            ui.controls.controls.lockView.tools.boundingBox.active = this.boundingBox;
+            Helpers.setControlToolActive('panLock', this.pan);
+            Helpers.setControlToolActive('zoomLock', this.zoom);
+            Helpers.setControlToolActive('boundingBox', this.boundingBox);
         }
 
         if (!options.fromSocket) {
             lockView.socket.updateLocks({
                 locks: this.get(),
-                scene: canvas.scene._id
+                scene: canvas.scene.id
             });
         }
         else if (lockView.controlButtonVisible){
-            ui.controls._configureRenderOptions({reset:true});
-            ui.controls.render();
+            Helpers.renderControls();
         }
 
         if (options.save && Helpers.getUserSetting('control')) {
@@ -49,7 +48,7 @@ export class Locks {
                 canvas.scene.setFlag('LockView', 'locks', this.get());
             }
             else {
-                lockView.socket.requestFlagSet({flag: 'locks', value: this.get(), scene: canvas.scene._id});
+                lockView.socket.requestFlagSet({flag: 'locks', value: this.get(), scene: canvas.scene.id});
             }
         }
         

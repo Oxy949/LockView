@@ -46,7 +46,7 @@ export class Helpers {
         var next = -1;
         var i = 0;
         if(typeof afterKey == 'undefined' || afterKey == null) afterKey = '';
-        $.each(obj, function(k, v) {
+        Object.entries(obj).forEach(([k, v]) => {
             if((afterKey == '' && i == 0) || next == 1) {
                 result[currentKey] = val; 
                 next = 0;
@@ -72,6 +72,33 @@ export class Helpers {
         if (userSetting && userSetting[key] !== undefined) return userSetting[key];
         const defaultUserSettings = game.user.isGM ? {enable: false, viewbox: false, static: false, control: true} : game.settings.get(moduleName, 'defaultUserSettings');
         return defaultUserSettings[key];
+    }
+
+    static getControlSet(name = 'lockView') {
+        return ui.controls?.controls?.[name];
+    }
+
+    static getControlTool(name, control = 'lockView') {
+        return this.getControlSet(control)?.tools?.[name];
+    }
+
+    static setControlToolActive(name, active, control = 'lockView') {
+        const tool = this.getControlTool(name, control);
+        if (tool) tool.active = active;
+    }
+
+    static renderControls(force = true) {
+        return ui.controls?.render(force);
+    }
+
+    static getViewPosition(scene = canvas.scene) {
+        const viewPosition = structuredClone(scene?._viewPosition ?? {});
+        if (viewPosition.scale) return viewPosition;
+        return {
+            x: canvas?.stage?.pivot?.x ?? scene?.initial?.x ?? 0,
+            y: canvas?.stage?.pivot?.y ?? scene?.initial?.y ?? 0,
+            scale: canvas?.stage?.scale?.x ?? scene?.initial?.scale ?? 1
+        };
     }
 
     static getSidebarWidth() {

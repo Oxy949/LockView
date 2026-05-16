@@ -48,7 +48,7 @@ export class SceneConfigurator extends HandlebarsApplicationMixin(ApplicationV2)
         const scene = sceneId === 'defaultSceneConfig' ? {name: Helpers.localize('Default', 'SceneConfigurator')} : game.scenes.get(sceneId);
         if (!scene) return ui.notifications.error("Lock View: " + Helpers.localize("CouldNotCopySceneConfig", "Notifications", {scene:scene.name}));
         this.copy = {
-            flags: sceneId === 'defaultSceneConfig' ? game.settings.get(moduleName, 'defaultSceneConfig') : scene.flags.LockView,
+            flags: sceneId === 'defaultSceneConfig' ? lockView.sceneHandler.getSceneFlags(game.settings.get(moduleName, 'defaultSceneConfig')) : lockView.sceneHandler.getSceneFlags(scene.flags.LockView),
             scene: sceneId,
             sceneName: scene.name
         }
@@ -70,9 +70,6 @@ export class SceneConfigurator extends HandlebarsApplicationMixin(ApplicationV2)
                     LockView: this.copy.flags
                 }
             })
-            
-            lockView.sceneHandler.onSceneLoad(scene);
-            lockView.socket.sceneUpdated({scene: sceneId})
         }
 
         ui.notifications.info("Lock View: " + Helpers.localize("PastedSceneConfig", "Notifications", {origin:this.copy.sceneName, target:scene.name}));
@@ -90,9 +87,6 @@ export class SceneConfigurator extends HandlebarsApplicationMixin(ApplicationV2)
                 LockView: game.settings.get(moduleName, 'defaultSceneConfig')
             }
         })
-        
-        lockView.sceneHandler.onSceneLoad(scene);
-        lockView.socket.sceneUpdated({scene: sceneId})
         
         ui.notifications.info("Lock View: " + Helpers.localize("ResetSceneConfig", "Notifications", {scene:scene.name}));
         this.render(true);
@@ -138,22 +132,20 @@ export class SceneConfigurator extends HandlebarsApplicationMixin(ApplicationV2)
         
         const updateFlags = async (sceneId, key, value) => {
             if (sceneId === 'defaultSceneConfig') {
-                let defaultSceneConfig = game.settings.get(moduleName, 'defaultSceneConfig');
+                let defaultSceneConfig = lockView.sceneHandler.getSceneFlags(game.settings.get(moduleName, 'defaultSceneConfig'));
                 Helpers.setNestedObjectValue(key, defaultSceneConfig, value);
                 game.settings.set(moduleName, 'defaultSceneConfig', defaultSceneConfig);
             }
             else {
                 const scene = game.scenes.get(sceneId); 
                 if (!scene) return;
-                let flags = scene.flags.LockView;
+                let flags = lockView.sceneHandler.getSceneFlags(scene.flags.LockView);
                 Helpers.setNestedObjectValue(key, flags, value);
                 await scene.update({
                     flags: {
                         LockView: flags
                     }
                 })
-                lockView.sceneHandler.onSceneLoad(scene);
-                lockView.socket.sceneUpdated({scene: sceneId})
             }
         }
 

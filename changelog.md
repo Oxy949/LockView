@@ -1,5 +1,13 @@
 # Changelog
 
+### v2.1.0 - 16-05-2026
+
+Compatibility:
+* Added Foundry VTT v14 compatibility.
+* Updated scene controls for v14's no-dummy-tool behavior while keeping the v13 fallback.
+* Updated Scene configuration injection to use Foundry's native `flags.LockView.*` form handling.
+* Updated Drawing configuration submit handling for the current ApplicationV2 flow.
+
 ### v2.0.3 - xx-xx-2026
 
 Fixes:

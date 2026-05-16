@@ -67,10 +67,11 @@ export class InitialViewConfig extends HandlebarsApplicationMixin(ApplicationV2)
         const userId = this.element.querySelector('select[name="playerView"]').value;
         
         if (userId === game.userId) {
-            this.initialView = canvas.scene._viewPosition;
-            this.data.position = canvas.scene._viewPosition;
-            this.data.width = window.innerWidth/canvas.scene._viewPosition.scale;
-            this.data.height = window.innerHeight/canvas.scene._viewPosition.scale;
+            const viewPosition = Helpers.getViewPosition();
+            this.initialView = viewPosition;
+            this.data.position = viewPosition;
+            this.data.width = window.innerWidth/viewPosition.scale;
+            this.data.height = window.innerHeight/viewPosition.scale;
             this.setInitialViewValues(this.initialView);
             if (this.viewbox) this.viewbox.update(this.data);
         }
@@ -129,9 +130,10 @@ export class InitialViewConfig extends HandlebarsApplicationMixin(ApplicationV2)
         let users = [{ value: game.userId, label: game.user.name }];
         for (let viewbox of Object.values(lockView.viewbox.viewboxes)) {
             const user = game.users.get(viewbox.userId);
+            if (!user) continue;
             if (user.viewedScene !== canvas.scene.id) continue;
             if (user.viewedScene !== this.scene.id) continue;
-            users.push({ value: user._id, label: user.name })
+            users.push({ value: user.id, label: user.name })
         }
 
         return {

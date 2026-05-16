@@ -51,7 +51,9 @@ export class ControlButtonsConfig extends HandlebarsApplicationMixin(Application
         Object.entries(visibleControlButtons).forEach(([id, value]) => {
             const tool = id === 'enable' 
                 ? {title: Helpers.localize("ControlButtons.EnableControlButtons"), icon: "fas fa-eye"} 
-                : ui.controls.controls.lockView.tools[id]
+                : Helpers.getControlTool(id)
+
+            if (!tool) return;
             
             controlButtons.push({
                 id,
@@ -69,6 +71,6 @@ export class ControlButtonsConfig extends HandlebarsApplicationMixin(Application
         const data = foundry.utils.expandObject(formData.object);
         await game.settings.set(moduleName, "controlButtons", data);
         lockView.controlButtonVisible = Helpers.getUserSetting('control') && data.enable;
-        ui.controls.render();
+        Helpers.renderControls();
     }
 }

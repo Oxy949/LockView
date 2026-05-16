@@ -3,23 +3,21 @@ import { Helpers } from "./helpers.js";
 
 export function initializeControlButtons() {
     Hooks.on('getSceneControlButtons', controls => {
+        const visibleControlButtons = game.settings.get(moduleName, "controlButtons");
+        const useDummyTool = (game.release?.generation ?? Number(game.version?.split(".")[0]) ?? 0) < 14;
+
         controls.lockView = {
             name: "lockView",
             title: "Lock View",
             icon: "fas fa-tv",
-            activeTool: "dummy",
+            order: 100,
+            visible: Helpers.getUserSetting('control') && visibleControlButtons?.enable,
             tools: {
-                dummy: {
-                    //Dummy tool because Foundry does not like it when there's no valid 'active' tool available, it's hidden on the 'renderSceneControls' hook. https://github.com/foundryvtt/foundryvtt/issues/12966
-                    name: "dummy",
-                    visible: true,
-                    order: 9
-                },
                 setView: {
                     name: "setView",
                     title: game.i18n.localize("LOCKVIEW.ControlButtons.SetView"),
                     icon: "fas fa-compress-arrows-alt",
-                    visible: true,
+                    visible: visibleControlButtons?.setView ?? true,
                     button: true,
                     order: 0,
                     onChange: () => lockView.apps.setView.render(true)
@@ -28,7 +26,7 @@ export function initializeControlButtons() {
                     name: "cloneView",
                     title: game.i18n.localize("LOCKVIEW.ControlButtons.CloneView"),
                     icon: "fas fa-clone",
-                    visible: true,
+                    visible: visibleControlButtons?.cloneView ?? true,
                     button: true,
                     order: 1,
                     onChange: () => lockView.apps.cloneView.apply()
@@ -37,22 +35,18 @@ export function initializeControlButtons() {
                     name: "resetView",
                     title: game.i18n.localize("LOCKVIEW.ControlButtons.ResetView"),
                     icon: "fas fa-rotate-left",
-                    visible: true,
+                    visible: visibleControlButtons?.resetView ?? true,
                     button: true,
                     order: 1,
                     onChange: () => {
-                        let users = [];
-                        game.users.forEach((u) => {
-                            if (Helpers.getUserSetting('enable', u.id)) 
-                                lockView.socket.refresh();
-                        })
+                        lockView.socket.refresh();
                     }
                 },
                 panLock: {
                     name: "panLock",
                     title: game.i18n.localize("LOCKVIEW.ControlButtons.PanLock"),
                     icon: "fas fa-arrows-alt",
-                    visible: true,
+                    visible: visibleControlButtons?.panLock ?? true,
                     order: 2,
                     onChange: (event, active) => {
                         lockView.locks.update({pan: active}, {save: true})
@@ -64,7 +58,7 @@ export function initializeControlButtons() {
                     name: "zoomLock",
                     title: game.i18n.localize("LOCKVIEW.ControlButtons.ZoomLock"),
                     icon: "fas fa-search-plus",
-                    visible: true,
+                    visible: visibleControlButtons?.zoomLock ?? true,
                     order: 3,
                     onChange: (event, active) => {
                         lockView.locks.update({zoom: active}, {save: true})
@@ -76,7 +70,7 @@ export function initializeControlButtons() {
                     name: "boundingBox",
                     title: game.i18n.localize("LOCKVIEW.ControlButtons.BoundingBox"),
                     icon: "fas fa-box",
-                    visible: true,
+                    visible: visibleControlButtons?.boundingBox ?? true,
                     order: 4,
                     onChange: (event, active) => {
                         lockView.locks.update({boundingBox: active}, {save: true})
@@ -88,61 +82,67 @@ export function initializeControlButtons() {
                     name: "viewbox",
                     title: game.i18n.localize("LOCKVIEW.ControlButtons.Viewbox"),
                     icon: "far fa-square",
-                    visible: true,
+                    visible: visibleControlButtons?.viewbox ?? true,
                     order: 5,
                     onChange: async (event, active) => {
                         lockView.viewbox.enable(active);
                         if (!active) {
                             lockView.viewbox.enableEdit(false);
-                            ui.controls.controls.lockView.tools.editViewbox.active = false;
-                            ui.controls.render();
+                            Helpers.setControlToolActive('editViewbox', false);
+                            Helpers.renderControls();
                         }
                     },
                     toggle: true,
-                    active: lockView.viewbox.enabled
+                    active: lockView?.viewbox?.enabled ?? false
                 },
                 editViewbox: {
                     name: "editViewbox",
                     title: game.i18n.localize("LOCKVIEW.ControlButtons.EditViewbox"),
                     icon: "fas fa-vector-square",
-                    visible: true,
+                    visible: visibleControlButtons?.editViewbox ?? true,
                     order: 6,
                     onChange: (event, active) => {
                         if (active && !lockView.viewbox.enabled) {
                             lockView.viewbox.enable(true);
-                            ui.controls.controls.lockView.tools.viewbox.active = true;
-                            ui.controls.render();
+                            Helpers.setControlToolActive('viewbox', true);
+                            Helpers.renderControls();
                         }
                         lockView.viewbox.enableEdit(active);
                     },
                     toggle: true,
-                    active: lockView.viewbox.editEnabled
+                    active: lockView?.viewbox?.editEnabled ?? false
                 },
             },
+        }
+
+        if (useDummyTool) {
+            controls.lockView.activeTool = "dummy";
+            controls.lockView.tools.dummy = {
+                name: "dummy",
+                title: "Lock View",
+                icon: "fas fa-tv",
+                visible: true,
+                order: 9
+            };
         }
     });
 
     Hooks.on('renderSceneControls', () => {
         const visibleControlButtons = game.settings.get(moduleName, "controlButtons");
         
-        if (!visibleControlButtons.enable || !Helpers.getUserSetting('control')) {
-            document.querySelector('button[data-control="lockView"]').parentElement.style.display = 'none';
-            if (ui.controls.control.name === "lockView")
+        if (!visibleControlButtons?.enable || !Helpers.getUserSetting('control')) {
+            document.querySelector('button[data-control="lockView"]')?.parentElement?.style.setProperty('display', 'none');
+            if (ui.controls.control?.name === "lockView")
                 ui.controls.activate({control: "tokens"}) 
             return;
         }
-        if (ui.controls.control.name !== 'lockView') {
+        if (ui.controls.control?.name !== 'lockView') {
             lockView.viewbox.enableEdit(false);
-            ui.controls.controls.lockView.tools.editViewbox.active = false;
+            Helpers.setControlToolActive('editViewbox', false);
         }
         else {
             const toolElements = document.getElementById("scene-controls-tools");
-            //hide dummy tool
-            toolElements.querySelector('button[data-tool="dummy"]').parentElement.style.display = 'none';
-            
-            Object.entries(visibleControlButtons).forEach(([id, value]) => {
-                if (!value) toolElements.querySelector(`button[data-tool="${id}"]`).parentElement.style.display = 'none';
-            })
+            toolElements?.querySelector('button[data-tool="dummy"]')?.parentElement?.style.setProperty('display', 'none');
         }
 
         document.querySelector('button[data-tool="cloneView"]')?.addEventListener('contextmenu', (ev) => {

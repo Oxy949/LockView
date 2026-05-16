@@ -54,12 +54,13 @@ export class CloneView extends HandlebarsApplicationMixin(ApplicationV2) {
         if (!users) {
             users = {};
             for (let user of game.users) {
-                if (user._id === game.userId) continue;
+                const userId = user.id;
+                if (userId === game.userId) continue;
                 if (user.viewedScene !== canvas.scene.id) continue;
-                if (this.users[user._id] !== undefined)
-                    users[user._id] = this.users[user._id];
+                if (this.users[userId] !== undefined)
+                    users[userId] = this.users[userId];
                 else {
-                    users[user._id] = Helpers.getUserSetting('enable', user._id);
+                    users[userId] = Helpers.getUserSetting('enable', userId);
                 }
             }
         }
@@ -94,14 +95,15 @@ export class CloneView extends HandlebarsApplicationMixin(ApplicationV2) {
             if (val) u.push(id);
         })
 
+        const viewPosition = Helpers.getViewPosition();
         lockView.socket.setViewDialog({
             pan: pan ? 'cloneView' : 'noChange',
             coordinates: {
-                x: canvas.scene._viewPosition.x,
-                y: canvas.scene._viewPosition.y
+                x: viewPosition.x,
+                y: viewPosition.y
             },
             zoom: zoom ? 'cloneView' : undefined,
-            scale: canvas.scene._viewPosition.scale
+            scale: viewPosition.scale
         }, u)
     }
 
@@ -110,16 +112,17 @@ export class CloneView extends HandlebarsApplicationMixin(ApplicationV2) {
 
         let users = [];
         for (let user of game.users) {
-            if (user._id === game.userId) continue;
+            const userId = user.id;
+            if (userId === game.userId) continue;
             if (user.viewedScene !== canvas.scene.id) continue;
             let initial;
-            if (this.users[user._id] !== undefined)
-                initial = this.users[user._id];
+            if (this.users[userId] !== undefined)
+                initial = this.users[userId];
             else {
-                initial = Helpers.getUserSetting('enable', user._id);
-                this.users[user._id] = initial;
+                initial = Helpers.getUserSetting('enable', userId);
+                this.users[userId] = initial;
             }
-            users.push(new foundry.data.fields.BooleanField({label: user.name, initial}, {name: `users.${user._id}`}))
+            users.push(new foundry.data.fields.BooleanField({label: user.name, initial}, {name: `users.${userId}`}))
         }
 
         return {

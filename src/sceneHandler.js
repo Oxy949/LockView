@@ -26,6 +26,11 @@ export class SceneHandler {
             lockView.migrationHandler.migrateScene(scene);
         })
 
+        Hooks.on('updateScene', (scene, changes) => {
+            if (!foundry.utils.hasProperty(changes, `flags.${moduleName}`)) return;
+            this.onSceneUpdate(scene, 'sceneConfig');
+        })
+
         /* Reconfigure the view and send an updated view to 'Control' users when the sidebar is collapsed or expanded */
         Hooks.on('collapseSidebar', (app, collapsed) => {
             if (Helpers.getUserSetting('enable')) {
@@ -33,7 +38,7 @@ export class SceneHandler {
                     this.setAutoscale();
                 }
                 this.setUiElements(canvas.scene, collapsed ? 'sidebarCollapse' : 'off');
-                canvas.pan(canvas.scene._viewPosition);
+                canvas.pan(Helpers.getViewPosition());
             }
             
             lockView.viewbox.emit();
@@ -43,26 +48,27 @@ export class SceneHandler {
     }
 
     async onSceneLoad(scene, source) {
+        const flags = this.getSceneFlags(scene.flags.LockView);
         //Set locks
-        const locks = scene.getFlag(moduleName, 'locks');
+        const locks = flags.locks;
         lockView.locks.update(locks);
-        this.setUiElements(scene, source);
+        this.setUiElements(scene, source, flags);
         if (Helpers.getUserSetting('enable')) {
-            this.setSidebar(scene);
-            await this.forceInitialView(scene);
-            this.setAutoscale(scene);
+            this.setSidebar(scene, flags);
+            await this.forceInitialView(scene, flags);
+            this.setAutoscale(scene, flags);
             if (locks.boundingBox) {
-                Hooks.once('ready', ()=> canvas.pan(scene._viewPosition));
+                Hooks.once('ready', ()=> canvas.pan(Helpers.getViewPosition(scene)));
             }
         }
         
         lockView.socket.requestViewbox();
     }
 
-    async forceInitialView(scene = canvas.scene) {
+    async forceInitialView(scene = canvas.scene, flags = this.getSceneFlags(scene.flags.LockView)) {
         if (!Helpers.getUserSetting('enable')) return;
 
-        const forceInitial = scene.getFlag(moduleName, 'forceInitialView');
+        const forceInitial = flags.forceInitialView;
         if (!forceInitial) return;
 
         const currentLocks = lockView.locks.applyLocks;
@@ -72,15 +78,16 @@ export class SceneHandler {
     }
 
     getAutoscale(mode, scene = canvas.scene) {
+        const flags = this.getSceneFlags(scene.flags.LockView);
         //canvas.dimensions.scale.min = 0.05;
         let windowWidth = window.innerWidth;
         let pos = {
             x: canvas.dimensions.sceneX + scene.width/2,
             y: canvas.dimensions.sceneY + scene.height/2
         };
-        if (canvas.scene.getFlag(moduleName, 'sidebar')?.exclude) {
+        if (flags.sidebar.exclude) {
             windowWidth -= Helpers.getSidebarWidth();
-            pos.x += 0.5*Helpers.getSidebarWidth()/canvas.scene._viewPosition.scale
+            pos.x += 0.5*Helpers.getSidebarWidth()/Helpers.getViewPosition().scale
         }
 
         if (mode === 'horizontal') pos.scale = windowWidth/scene.width;
@@ -92,8 +99,8 @@ export class SceneHandler {
         return pos;
     }
 
-    async setAutoscale(scene = canvas.scene) {
-        const autoscale = scene.getFlag(moduleName, 'autoscale');
+    async setAutoscale(scene = canvas.scene, flags = this.getSceneFlags(scene.flags.LockView)) {
+        const autoscale = flags.autoscale;
         if (!autoscale || autoscale === 'off') return;
 
         const currentLocks = lockView.locks.applyLocks;
@@ -111,16 +118,15 @@ export class SceneHandler {
 
     onSceneUpdate(scene, source, emitUpdate=false) {
         //Send socket to other players
-        if (emitUpdate) lockView.socket.sceneUpdated({scene: scene?._id})
+        if (emitUpdate) lockView.socket.sceneUpdated({scene: scene?.id})
         
-        if (!scene || !canvas?.scene || scene._id !== canvas.scene._id) return;
+        if (!scene || !canvas?.scene || scene.id !== canvas.scene.id) return;
         this.onSceneLoad(scene, source);
-        ui.controls._configureRenderOptions({reset:true});
-        ui.controls.render();
+        Helpers.renderControls();
     }
 
-    setUiElements(scene, source) {
-        const uiFlags = scene.getFlag(moduleName, 'ui');
+    setUiElements(scene, source, flags = this.getSceneFlags(scene.flags.LockView)) {
+        const uiFlags = flags.ui;
         //console.log("UIFlags", uiFlags)
         if (!Helpers.getUserSetting('enable')) {
             for (let [elmntId, hide] of Object.entries(uiFlags)) 
@@ -132,7 +138,7 @@ export class SceneHandler {
             return;
         }
 
-        const blackenSidebar = scene.getFlag(moduleName, 'sidebar').blacken;
+        const blackenSidebar = flags.sidebar.blacken;
         lockView.styles.setBlackenSidebar(blackenSidebar);
         
 
@@ -152,8 +158,8 @@ export class SceneHandler {
         }
     } 
 
-    setSidebar(scene) {
-        const sidebarFlags = scene.getFlag(moduleName, 'sidebar');
+    setSidebar(scene, flags = this.getSceneFlags(scene.flags.LockView)) {
+        const sidebarFlags = flags.sidebar;
         
         if (sidebarFlags.sceneLoad !== 'noChange') {
             if (sidebarFlags.sceneLoad === 'expand') ui.sidebar.expand();
@@ -163,7 +169,7 @@ export class SceneHandler {
 
     forceShowUi() {
         this.forceUi = !this.forceUi;
-        const hideOn = canvas.scene.getFlag(moduleName, 'ui').hideOn;
+        const hideOn = this.getSceneFlags(canvas.scene.flags.LockView).ui.hideOn;
         if (hideOn === 'sidebar') this.setUiElements(canvas.scene, ui.sidebar.expanded ? 'off' : 'sidebarCollapse');
         else this.setUiElements(canvas.scene, 'forceShowUi');
     }
@@ -176,13 +182,13 @@ export class SceneHandler {
                 settings: [
                     {
                         id: 'pan',
-                        datafield: new foundry.data.fields.BooleanField({label: localize('Locks.PanLock'), hint: localize('Locks.PanLock_Hint'), initial: flags.locks.pan}, {name: 'lockview.locks.pan'})
+                        datafield: new foundry.data.fields.BooleanField({label: localize('Locks.PanLock'), hint: localize('Locks.PanLock_Hint'), initial: flags.locks.pan}, {name: 'flags.LockView.locks.pan'})
                     },{
                         id: 'zoom',
-                        datafield: new foundry.data.fields.BooleanField({label: localize('Locks.ZoomLock'), hint: localize('Locks.ZoomLock_Hint'), initial: flags.locks.zoom}, {name: 'lockview.locks.zoom'})
+                        datafield: new foundry.data.fields.BooleanField({label: localize('Locks.ZoomLock'), hint: localize('Locks.ZoomLock_Hint'), initial: flags.locks.zoom}, {name: 'flags.LockView.locks.zoom'})
                     },{
                         id: 'boundingBox',
-                        datafield: new foundry.data.fields.BooleanField({label: localize('Locks.BoundingBox'), hint: localize('Locks.BoundingBox_Hint'), initial: flags.locks.boundingBox}, {name: 'lockview.locks.boundingBox'})
+                        datafield: new foundry.data.fields.BooleanField({label: localize('Locks.BoundingBox'), hint: localize('Locks.BoundingBox_Hint'), initial: flags.locks.boundingBox}, {name: 'flags.LockView.locks.boundingBox'})
                     }
                 ]
             },{
@@ -212,10 +218,10 @@ export class SceneHandler {
                         value: flags.sidebar.sceneLoad
                     },{
                         id: 'exclude',
-                        datafield: new foundry.data.fields.BooleanField({label: localize('Sidebar.ExcludeSidebar'), hint: localize('Sidebar.ExcludeSidebar_Hint'), initial: flags.sidebar.exclude}, {name: 'lockview.sidebar.exclude'})
+                        datafield: new foundry.data.fields.BooleanField({label: localize('Sidebar.ExcludeSidebar'), hint: localize('Sidebar.ExcludeSidebar_Hint'), initial: flags.sidebar.exclude}, {name: 'flags.LockView.sidebar.exclude'})
                     },{
                         id: 'blacken',
-                        datafield: new foundry.data.fields.BooleanField({label: localize('Sidebar.BlackenSidebar'), hint: localize('Sidebar.BlackenSidebar_Hint'), initial: flags.sidebar.blacken}, {name: 'lockview.sidebar.blacken'})
+                        datafield: new foundry.data.fields.BooleanField({label: localize('Sidebar.BlackenSidebar'), hint: localize('Sidebar.BlackenSidebar_Hint'), initial: flags.sidebar.blacken}, {name: 'flags.LockView.sidebar.blacken'})
                     }
                 ]
             },{
@@ -234,36 +240,44 @@ export class SceneHandler {
                         value: flags.ui.hideOn
                     },{
                         id: 'sceneControls',
-                        datafield: new foundry.data.fields.BooleanField({label: localize('UI.SceneControls'), initial: flags.ui["scene-controls"]}, {name: 'lockview.ui.scene-controls'})
+                        datafield: new foundry.data.fields.BooleanField({label: localize('UI.SceneControls'), initial: flags.ui["scene-controls"]}, {name: 'flags.LockView.ui.scene-controls'})
                     },{
                         id: 'hotbar',
-                        datafield: new foundry.data.fields.BooleanField({label: localize('UI.Hotbar'), initial: flags.ui.hotbar}, {name: 'lockview.ui.hotbar'})
+                        datafield: new foundry.data.fields.BooleanField({label: localize('UI.Hotbar'), initial: flags.ui.hotbar}, {name: 'flags.LockView.ui.hotbar'})
                     },{
                         id: 'sceneNavigation',
-                        datafield: new foundry.data.fields.BooleanField({label: localize('UI.SceneNavigation'), initial: flags.ui["scene-navigation"]}, {name: 'lockview.ui.scene-navigation'})
+                        datafield: new foundry.data.fields.BooleanField({label: localize('UI.SceneNavigation'), initial: flags.ui["scene-navigation"]}, {name: 'flags.LockView.ui.scene-navigation'})
                     },{
                         id: 'players',
-                        datafield: new foundry.data.fields.BooleanField({label: localize('UI.Players'), initial: flags.ui.players}, {name: 'lockview.ui.players'})
+                        datafield: new foundry.data.fields.BooleanField({label: localize('UI.Players'), initial: flags.ui.players}, {name: 'flags.LockView.ui.players'})
                     },{
                         id: 'chatNotifications',
-                        datafield: new foundry.data.fields.BooleanField({label: localize('UI.ChatNotifications'), initial: flags.ui["chat-notifications"]}, {name: 'lockview.ui.chat-notifications'})
+                        datafield: new foundry.data.fields.BooleanField({label: localize('UI.ChatNotifications'), initial: flags.ui["chat-notifications"]}, {name: 'flags.LockView.ui.chat-notifications'})
                     },{
                         id: 'cameraViews',
-                        datafield: new foundry.data.fields.BooleanField({label: localize('UI.CameraViews'), initial: flags.ui["camera-views"]}, {name: 'lockview.ui.camera-views'})
+                        datafield: new foundry.data.fields.BooleanField({label: localize('UI.CameraViews'), initial: flags.ui["camera-views"]}, {name: 'flags.LockView.ui.camera-views'})
                     },{
                         id: 'sidebar',
-                        datafield: new foundry.data.fields.BooleanField({label: localize('UI.Sidebar'), initial: flags.ui.sidebar}, {name: 'lockview.ui.sidebar'})
+                        datafield: new foundry.data.fields.BooleanField({label: localize('UI.Sidebar'), initial: flags.ui.sidebar}, {name: 'flags.LockView.ui.sidebar'})
                     }
                 ]
             },{
                 id: 'forceInitialView',
-                datafield: new foundry.data.fields.BooleanField({label: localize('ForceInitialView.Label'), initial: flags.forceInitialView}, {name: 'lockview.forceInitialView'})
+                datafield: new foundry.data.fields.BooleanField({label: localize('ForceInitialView.Label'), initial: flags.forceInitialView}, {name: 'flags.LockView.forceInitialView'})
             }
         ]
     }
 
+    getSceneFlags(flags) {
+        const mergedFlags = structuredClone(this.defaultSceneConfig);
+        return foundry.utils.mergeObject(mergedFlags, structuredClone(flags ?? {}));
+    }
+
     getSceneConfig(flags, settings) {
-        if (!settings) settings = this.getSceneSettings(flags);
+        if (!settings) {
+            flags = this.getSceneFlags(flags);
+            settings = this.getSceneSettings(flags);
+        }
         let config = {};
         for (let s of settings) {
             let setting = {};

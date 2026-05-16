@@ -42,7 +42,7 @@ class LockView {
 
   refresh(fromSocket=false) {
     this.controlButtonVisible = Helpers.getUserSetting('control') && game.settings.get(moduleName, "controlButtons")?.enable;
-    ui.controls.render();
+    Helpers.renderControls();
     const locks = canvas.scene.getFlag(moduleName, 'locks');
     this.locks.applyLocks = Helpers.getUserSetting('enable');
     this.locks.update(locks);
